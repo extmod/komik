@@ -1,83 +1,295 @@
-// api/scrape.js - Advanced scraper dengan caching & session management
+// api/scrape.js — Rewrite berdasarkan kode Mihon Softkomik extension
 
 import axios from 'axios';
-import * as cheerio from 'cheerio';
 
 const BASE_URL = 'https://softkomik.co';
+const API_URL = 'https://v2.softdevices.my.id';
+const COVER_URL = 'https://cover.softdevices.my.id/softkomik-cover';
+const IMAGE_BASE_URL = 'https://cd1.softkomik.online/softkomik';
 
 // Simple in-memory cache
-const cache = {
-  data: new Map(),
-  set(key, value, ttl = 3600) {
-    this.data.set(key, {
-      value,
-      expires: Date.now() + ttl * 1000
-    });
-  },
-  get(key) {
-    const item = this.data.get(key);
-    if (!item) return null;
-    
-    if (Date.now() > item.expires) {
-      this.data.delete(key);
-      return null;
-    }
-    return item.value;
-  }
-};
+const cache = new Map();
+function cacheGet(key) {
+  const item = cache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expires) { cache.delete(key); return null; }
+  return item.value;
+}
+function cacheSet(key, value, ttl = 3600) {
+  cache.set(key, { value, expires: Date.now() + ttl * 1000 });
+}
 
-const headers = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Referer': BASE_URL,
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-};
+// Session cache — sama seperti @Volatile di Kotlin
+let sessionCache = null;
+
+// ─── Session Management ───────────────────────────────────────────
+
+async function getSession() {
+  // Cek apakah session masih valid (ex = expiry timestamp dalam ms)
+  if (sessionCache && sessionCache.ex > Date.now()) {
+    return sessionCache;
+  }
+
+  // Hit /api/sessions — sama persis seperti getSession() di Kotlin
+  const response = await axios.get(`${BASE_URL}/api/sessions`, {
+    headers: {
+      'Accept': 'application/json, text/plain, */*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Origin': BASE_URL,
+      'Referer': `${BASE_URL}/`,
+    },
+    timeout: 10000,
+  });
+
+  sessionCache = response.data;
+  return sessionCache;
+}
+
+// Headers dengan auth token — untuk endpoint API yang butuh auth
+async function authHeaders(referer = `${BASE_URL}/`) {
+  const sess = await getSession();
+  return {
+    'Accept': 'application/json, text/plain, */*',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Origin': BASE_URL,
+    'Referer': referer,
+    'X-Token': sess.token,
+    'X-Sign': sess.sign,
+  };
+}
+
+// Headers tanpa auth — untuk chapter list dan search
+function unauthHeaders(referer = `${BASE_URL}/`) {
+  return {
+    'Accept': 'application/json, text/plain, */*',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Origin': BASE_URL,
+    'Referer': referer,
+  };
+}
+
+// ─── API Functions ────────────────────────────────────────────────
+
+async function searchManga(query, page = 1) {
+  if (!query || query.length < 2) throw new Error('Query minimal 2 karakter');
+
+  const cacheKey = `search:${query.toLowerCase()}:${page}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  // Persis seperti searchMangaRequest() di Kotlin
+  // GET $apiUrl/komik?name=QUERY&search=true&limit=20&page=PAGE
+  const url = new URL(`${API_URL}/komik`);
+  url.searchParams.set('name', query);
+  url.searchParams.set('search', 'true');
+  url.searchParams.set('limit', '20');
+  url.searchParams.set('page', page.toString());
+
+  const response = await axios.get(url.toString(), {
+    headers: unauthHeaders(`${BASE_URL}/`),
+    timeout: 10000,
+  });
+
+  // Response: LibDataDto { data: [...], page: N, maxPage: N }
+  const libData = response.data;
+  if (!libData?.data) throw new Error('Format response tidak valid');
+
+  const results = libData.data.map(manga => ({
+    id: manga.title_slug,
+    title: manga.title,
+    cover: `${COVER_URL}/${manga.gambar.replace(/^\//, '')}`,
+    url: `${BASE_URL}/${manga.title_slug}`,
+  }));
+
+  const result = {
+    data: results,
+    page: libData.page,
+    maxPage: libData.maxPage,
+    hasMore: libData.page < libData.maxPage,
+  };
+
+  cacheSet(cacheKey, result, 1800);
+  return result;
+}
+
+async function getMangaDetails(slug) {
+  const cacheKey = `manga:${slug}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  // Persis seperti mangaDetailsRequest() — menggunakan auth headers
+  const headers = await authHeaders(`${BASE_URL}/`);
+  const response = await axios.get(`${API_URL}/komik/${slug}`, {
+    headers,
+    timeout: 10000,
+  });
+
+  const manga = response.data;
+
+  const result = {
+    id: slug,
+    title: manga.title,
+    author: manga.author,
+    description: manga.sinopsis,
+    genres: manga.Genre || [],
+    status: manga.status,
+    cover: `${COVER_URL}/${(manga.gambar || '').replace(/^\//, '')}`,
+    url: `${BASE_URL}/${slug}`,
+  };
+
+  cacheSet(cacheKey, result, 3600);
+  return result;
+}
+
+async function getChapters(slug) {
+  const cacheKey = `chapters:${slug}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  // Persis seperti chapterListRequest() di Kotlin:
+  // GET $apiUrl/komik/$slug/chapter?limit=9999999
+  // Pakai unauthHeaders, bukan auth!
+  const response = await axios.get(
+    `${API_URL}/komik/${slug}/chapter?limit=9999999`,
+    {
+      headers: unauthHeaders(`${BASE_URL}/${slug}`),
+      timeout: 15000,
+    }
+  );
+
+  // ChapterListDto { chapter: [{ chapter: "1" }, ...] }
+  const dto = response.data;
+  if (!dto?.chapter) throw new Error('Format chapter list tidak valid');
+
+  const chapters = dto.chapter.map(ch => {
+    const raw = ch.chapter.trim();
+    const num = parseFloat(raw.replace(',', '.')) || -1;
+    return {
+      id: raw,
+      title: `Chapter ${formatChapterNumber(raw)}`,
+      number: num,
+      url: `/${slug}/chapter/${raw}`,
+    };
+  }).sort((a, b) => b.number - a.number); // descending seperti di Kotlin
+
+  cacheSet(cacheKey, chapters, 1800);
+  return chapters;
+}
+
+async function getChapterImages(mangaSlug, chapterNumber) {
+  const cacheKey = `chapter:${mangaSlug}:${chapterNumber}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  // pageListRequest() — pakai RSC headers untuk Next.js
+  const response = await axios.get(
+    `${BASE_URL}/${mangaSlug}/chapter/${chapterNumber}`,
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': `${BASE_URL}/`,
+        'rsc': '1', // Next.js RSC header — ini kuncinya!
+        'Accept': 'text/x-component, */*',
+      },
+      timeout: 15000,
+    }
+  );
+
+  // extractNextJs<ChapterPageDataDto> — parse imageSrc dari RSC payload
+  // imageSrc adalah array path gambar relatif
+  const imageSrc = extractImageSrcFromRsc(response.data);
+
+  if (!imageSrc || imageSrc.length === 0) {
+    throw new Error('Tidak ada gambar ditemukan di chapter ini');
+  }
+
+  const images = imageSrc.map((img, i) => ({
+    page: i + 1,
+    url: `${IMAGE_BASE_URL}/${img.replace(/^\//, '')}`,
+  }));
+
+  const result = {
+    mangaSlug,
+    chapterNumber,
+    images,
+    totalPages: images.length,
+  };
+
+  cacheSet(cacheKey, result, 1800);
+  return result;
+}
+
+// ─── RSC Parser ──────────────────────────────────────────────────
+
+function extractImageSrcFromRsc(rscData) {
+  // Next.js RSC payload adalah stream teks, bukan JSON murni
+  // Cari array imageSrc di dalamnya
+  try {
+    const text = typeof rscData === 'string' ? rscData : JSON.stringify(rscData);
+
+    // Cari pattern "imageSrc":["path1","path2",...]
+    const match = text.match(/"imageSrc"\s*:\s*(\[[\s\S]*?\])/);
+    if (match) {
+      return JSON.parse(match[1]);
+    }
+
+    // Fallback: cari semua path gambar yang relevan
+    const imgMatches = [...text.matchAll(/"(\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/gi)];
+    if (imgMatches.length > 0) {
+      return imgMatches.map(m => m[1]);
+    }
+  } catch (e) {
+    console.error('RSC parse error:', e.message);
+  }
+  return [];
+}
+
+// ─── Helper ──────────────────────────────────────────────────────
+
+function formatChapterNumber(raw) {
+  const normalized = raw.replace(',', '.');
+  const num = parseFloat(normalized);
+  if (isNaN(num)) return raw;
+  return num === Math.floor(num) ? Math.floor(num).toString() : num.toString();
+}
+
+// ─── Rate Limiting ───────────────────────────────────────────────
 
 const rateLimitMap = new Map();
-
-function checkRateLimit(ip, limit = 10, window = 60) {
+function checkRateLimit(ip, limit = 20, windowSec = 60) {
   const now = Date.now();
   const key = `rate:${ip}`;
-  
-  let requests = rateLimitMap.get(key) || [];
-  requests = requests.filter(t => now - t < window * 1000);
-  
-  if (requests.length >= limit) {
-    return false;
-  }
-  
-  requests.push(now);
-  rateLimitMap.set(key, requests);
+  let reqs = (rateLimitMap.get(key) || []).filter(t => now - t < windowSec * 1000);
+  if (reqs.length >= limit) return false;
+  reqs.push(now);
+  rateLimitMap.set(key, reqs);
   return true;
 }
 
+// ─── Handler ─────────────────────────────────────────────────────
+
 export default async function handler(req, res) {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.connection.remoteAddress;
-  
-  // CORS headers
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || '127.0.0.1';
+
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Cache-Control', 'public, max-age=3600');
-  
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  res.setHeader('Content-Type', 'application/json');
 
+  if (req.method === 'OPTIONS') return res.status(200).end();
   if (!checkRateLimit(ip)) {
-    return res.status(429).json({ 
-      error: 'Too many requests',
-      message: 'Max 10 requests per minute'
-    });
+    return res.status(429).json({ error: 'Too many requests. Max 20/menit.' });
   }
 
-  const { action, query, mangaId, chapterId } = req.query;
+  const { action, query, page, mangaId, chapterId } = req.query;
 
   try {
     let result;
-    
-    switch(action) {
+    switch (action) {
       case 'search':
-        result = await searchManga(query);
+        result = await searchManga(query, parseInt(page) || 1);
         break;
       case 'manga':
         result = await getMangaDetails(query);
@@ -89,262 +301,24 @@ export default async function handler(req, res) {
         result = await getChapterImages(mangaId, chapterId);
         break;
       default:
-        return res.status(400).json({ error: 'Invalid action' });
+        return res.status(400).json({ error: 'Action tidak valid' });
     }
-    
     return res.status(200).json(result);
   } catch (error) {
-    console.error(`[${action}] Error:`, error.message);
-    
-    let errorMsg = error.message;
-    if (error.code === 'ECONNREFUSED') {
-      errorMsg = 'Cannot connect to softkomik.co';
-    } else if (error.response?.status === 403) {
-      errorMsg = 'Access forbidden - possibly rate limited or blocked';
-    } else if (error.response?.status === 404) {
-      errorMsg = 'Content not found';
+    console.error(`[scrape:${action}]`, error.message);
+
+    // Retry dengan session baru jika 401
+    if (error.response?.status === 401) {
+      sessionCache = null;
+      return res.status(401).json({ error: 'Session expired, coba lagi' });
     }
-    
-    return res.status(error.response?.status || 500).json({ 
-      error: errorMsg,
-      action,
-      timestamp: new Date().toISOString()
-    });
+
+    const msg =
+      error.response?.status === 403 ? 'Akses diblokir oleh situs' :
+      error.response?.status === 404 ? 'Konten tidak ditemukan' :
+      error.code === 'ENOTFOUND' ? 'Tidak bisa terhubung ke server' :
+      error.message;
+
+    return res.status(error.response?.status || 500).json({ error: msg });
   }
-}
-
-async function searchManga(query) {
-  if (!query || query.length < 2) {
-    throw new Error('Query minimal 2 karakter');
-  }
-
-  const cacheKey = `search:${query.toLowerCase()}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return cached;
-
-  const endpoints = [
-    `${BASE_URL}/?s=${encodeURIComponent(query)}`,
-    `${BASE_URL}/search/${encodeURIComponent(query)}/`,
-  ];
-
-  let data;
-  for (const url of endpoints) {
-    try {
-      const response = await axios.get(url, { headers, timeout: 10000 });
-      data = response.data;
-      break;
-    } catch (e) {
-      continue;
-    }
-  }
-
-  if (!data) throw new Error('Search endpoint tidak accessible');
-
-  const $ = cheerio.load(data);
-  const results = [];
-  
-  const selectors = [
-    '.item-manga',
-    '.manga-item',
-    '.post-item',
-    '[data-type="manga"]',
-    '.movie'
-  ];
-
-  for (const selector of selectors) {
-    $(selector).each((i, el) => {
-      const $el = $(el);
-      const title = $el.find('.title, h3, .name, .manga-name').text().trim();
-      const href = $el.find('a').first().attr('href');
-      const cover = $el.find('img').attr('src') || $el.find('img').attr('data-src');
-      
-      if (title && href) {
-        const id = extractIdFromUrl(href);
-        if (id && !results.find(r => r.id === id)) {
-          results.push({
-            title,
-            url: href,
-            id,
-            cover: normalizeImageUrl(cover)
-          });
-        }
-      }
-    });
-    
-    if (results.length > 0) break;
-  }
-
-  cache.set(cacheKey, results, 3600);
-  return results;
-}
-
-async function getMangaDetails(mangaId) {
-  const cacheKey = `manga:${mangaId}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return cached;
-
-  const url = `${BASE_URL}/manga/${mangaId}/`;
-  const { data } = await axios.get(url, { headers, timeout: 10000 });
-  const $ = cheerio.load(data);
-
-  const details = {
-    id: mangaId,
-    title: extractText($, ['.manga-title', '.title', 'h1']),
-    cover: normalizeImageUrl(extractImage($, ['.manga-cover', '.cover img'])),
-    status: extractText($, ['.status', '[class*="status"]']),
-    author: extractText($, ['.author', '[class*="author"]']),
-    description: extractText($, ['.description', '.sinopsis', '[class*="sinopsis"]']),
-    genres: [],
-    rating: extractText($, ['.rating', '.score']),
-    totalChapters: 0,
-    url
-  };
-
-  $('[class*="genre"]').each((i, el) => {
-    const genre = $(el).text().trim();
-    if (genre) details.genres.push(genre);
-  });
-
-  cache.set(cacheKey, details, 3600);
-  return details;
-}
-
-async function getChapters(mangaId) {
-  const cacheKey = `chapters:${mangaId}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return cached;
-
-  const url = `${BASE_URL}/manga/${mangaId}/`;
-  const { data } = await axios.get(url, { headers, timeout: 10000 });
-  const $ = cheerio.load(data);
-
-  const chapters = [];
-  
-  const chapterSelectors = [
-    '.chapter-item',
-    '.ch-item',
-    '.chapter',
-    '[class*="chapter"]'
-  ];
-
-  for (const selector of chapterSelectors) {
-    $(selector).each((i, el) => {
-      const $el = $(el);
-      const link = $el.find('a').first();
-      const href = link.attr('href');
-      const title = link.text().trim();
-      const dateEl = $el.find('[class*="date"], .date, time');
-      const date = dateEl.text().trim() || dateEl.attr('datetime');
-
-      if (href && title) {
-        const id = extractIdFromUrl(href);
-        chapters.push({
-          title,
-          url: href,
-          id,
-          date: parseDate(date)
-        });
-      }
-    });
-
-    if (chapters.length > 0) break;
-  }
-
-  chapters.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  cache.set(cacheKey, chapters, 1800);
-  return chapters;
-}
-
-async function getChapterImages(mangaId, chapterId) {
-  const cacheKey = `chapter:${mangaId}:${chapterId}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return cached;
-
-  const url = `${BASE_URL}/manga/${mangaId}/${chapterId}/`;
-  const { data } = await axios.get(url, { headers, timeout: 15000 });
-  const $ = cheerio.load(data);
-
-  const images = [];
-  
-  const imageSelectors = [
-    '.chapter-image img',
-    '.page img',
-    '[class*="image"] img',
-    'img[src*="image"]'
-  ];
-
-  for (const selector of imageSelectors) {
-    $(selector).each((i, el) => {
-      const src = $(el).attr('src') || 
-                  $(el).attr('data-src') || 
-                  $(el).attr('data-lazy-src');
-      
-      if (src && !src.includes('ad')) {
-        images.push({
-          page: i + 1,
-          url: normalizeImageUrl(src)
-        });
-      }
-    });
-
-    if (images.length > 0) break;
-  }
-
-  const result = {
-    mangaId,
-    chapterId,
-    images,
-    totalPages: images.length
-  };
-
-  cache.set(cacheKey, result, 1800);
-  return result;
-}
-
-function extractIdFromUrl(url) {
-  if (!url) return null;
-  const parts = url.split('/').filter(Boolean);
-  return parts[parts.length - 1] || null;
-}
-
-function normalizeImageUrl(url) {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  if (url.startsWith('//')) return 'https:' + url;
-  return BASE_URL + (url.startsWith('/') ? url : '/' + url);
-}
-
-function extractText($, selectors) {
-  for (const selector of selectors) {
-    const text = $(selector).first().text().trim();
-    if (text) return text;
-  }
-  return '';
-}
-
-function extractImage($, selectors) {
-  for (const selector of selectors) {
-    const src = $(selector).first().attr('src') || $(selector).first().attr('data-src');
-    if (src) return src;
-  }
-  return null;
-}
-
-function parseDate(dateStr) {
-  if (!dateStr) return new Date().toISOString();
-  
-  const match = dateStr.match(/(\d+)\s+(jam|hari|minggu|bulan|tahun|second|minute|hour|day|week|month|year)\s+lalu/i);
-  if (match) {
-    const [, num, unit] = match;
-    const date = new Date();
-    const subtract = parseInt(num);
-    
-    if (['hari', 'day'].includes(unit.toLowerCase())) date.setDate(date.getDate() - subtract);
-    if (['jam', 'hour'].includes(unit.toLowerCase())) date.setHours(date.getHours() - subtract);
-    
-    return date.toISOString();
-  }
-  
-  return new Date(dateStr).toISOString();
 }
