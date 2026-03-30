@@ -1,276 +1,336 @@
-// api/scrape.js — Rewrite berdasarkan kode Mihon Softkomik extension
+// api/scrape.js — Softkomik scraper (Next.js RSC + custom API)
 
 import axios from 'axios';
 
 const BASE_URL = 'https://softkomik.co';
-const API_URL = 'https://v2.softdevices.my.id';
+const API_URL  = 'https://v2.softdevices.my.id';
 const COVER_URL = 'https://cover.softdevices.my.id/softkomik-cover';
 const IMAGE_BASE_URL = 'https://cd1.softkomik.online/softkomik';
+const CDN_FALLBACKS = [
+  'https://psy1.komik.im',
+  'https://image.komik.im/softkomik',
+  'https://f1.softkomik.com/file/softkomik-image',
+  'https://img.softdevices.my.id/softkomik-image',
+];
 
-// Simple in-memory cache
-const cache = new Map();
-function cacheGet(key) {
-  const item = cache.get(key);
-  if (!item) return null;
-  if (Date.now() > item.expires) { cache.delete(key); return null; }
-  return item.value;
-}
-function cacheSet(key, value, ttl = 3600) {
-  cache.set(key, { value, expires: Date.now() + ttl * 1000 });
-}
+// ── Cache ────────────────────────────────────────────────────────
+const _cache = new Map();
+const cacheGet = (k) => {
+  const item = _cache.get(k);
+  if (!item || Date.now() > item.exp) { _cache.delete(k); return null; }
+  return item.v;
+};
+const cacheSet = (k, v, ttl = 3600) =>
+  _cache.set(k, { v, exp: Date.now() + ttl * 1000 });
 
-// Session cache — sama seperti @Volatile di Kotlin
-let sessionCache = null;
-
-// ─── Session Management ───────────────────────────────────────────
+// ── Session ──────────────────────────────────────────────────────
+let _session = null;
 
 async function getSession() {
-  // Cek apakah session masih valid (ex = expiry timestamp dalam ms)
-  if (sessionCache && sessionCache.ex > Date.now()) {
-    return sessionCache;
-  }
+  if (_session && _session.ex > Date.now()) return _session;
 
-  // Hit /api/sessions — sama persis seperti getSession() di Kotlin
-  const response = await axios.get(`${BASE_URL}/api/sessions`, {
-    headers: {
-      'Accept': 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'X-Requested-With': 'XMLHttpRequest',
-      'Origin': BASE_URL,
-      'Referer': `${BASE_URL}/`,
-    },
-    timeout: 10000,
+  const res = await axios.get(`${BASE_URL}/api/sessions`, {
+    headers: unauthHeaders(`${BASE_URL}/`),
+    timeout: 12000,
   });
 
-  sessionCache = response.data;
-  return sessionCache;
+  // /api/sessions mengembalikan { token, sign, ex }
+  // 'ex' bisa dalam detik (Unix) atau milidetik — normalkan ke ms
+  const raw = res.data;
+  if (!raw?.token || !raw?.sign) {
+    throw new Error(`Session invalid: ${JSON.stringify(raw).slice(0, 200)}`);
+  }
+
+  // Normalisasi expiry ke milliseconds
+  const ex = raw.ex < 1e12 ? raw.ex * 1000 : raw.ex;
+  _session = { token: raw.token, sign: raw.sign, ex };
+  return _session;
 }
 
-// Headers dengan auth token — untuk endpoint API yang butuh auth
-async function authHeaders(referer = `${BASE_URL}/`) {
-  const sess = await getSession();
+// ── Headers ──────────────────────────────────────────────────────
+function unauthHeaders(referer = `${BASE_URL}/`) {
   return {
     'Accept': 'application/json, text/plain, */*',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'X-Requested-With': 'XMLHttpRequest',
     'Origin': BASE_URL,
     'Referer': referer,
+  };
+}
+
+async function authHeaders(referer = `${BASE_URL}/`) {
+  const sess = await getSession();
+  return {
+    ...unauthHeaders(referer),
     'X-Token': sess.token,
     'X-Sign': sess.sign,
   };
 }
 
-// Headers tanpa auth — untuk chapter list dan search
-function unauthHeaders(referer = `${BASE_URL}/`) {
+function rscHeaders() {
   return {
-    'Accept': 'application/json, text/plain, */*',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Origin': BASE_URL,
-    'Referer': referer,
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/x-component, */*',
+    'Referer': `${BASE_URL}/`,
+    'rsc': '1',               // ← kunci Next.js RSC
+    'Next-Router-State-Tree': '%5B%22%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D',
   };
 }
 
-// ─── API Functions ────────────────────────────────────────────────
+// ── Rate Limit ────────────────────────────────────────────────────
+const _rl = new Map();
+function checkRateLimit(ip, limit = 30, windowSec = 60) {
+  const now = Date.now();
+  const reqs = (_rl.get(ip) || []).filter(t => now - t < windowSec * 1000);
+  if (reqs.length >= limit) return false;
+  _rl.set(ip, [...reqs, now]);
+  return true;
+}
+
+// ── API Calls ─────────────────────────────────────────────────────
 
 async function searchManga(query, page = 1) {
   if (!query || query.length < 2) throw new Error('Query minimal 2 karakter');
 
-  const cacheKey = `search:${query.toLowerCase()}:${page}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) return cached;
+  const cKey = `search:${query.toLowerCase()}:${page}`;
+  const hit  = cacheGet(cKey);
+  if (hit) return hit;
 
-  // Persis seperti searchMangaRequest() di Kotlin
-  // GET $apiUrl/komik?name=QUERY&search=true&limit=20&page=PAGE
   const url = new URL(`${API_URL}/komik`);
   url.searchParams.set('name', query);
   url.searchParams.set('search', 'true');
   url.searchParams.set('limit', '20');
-  url.searchParams.set('page', page.toString());
+  url.searchParams.set('page', String(page));
 
-  const response = await axios.get(url.toString(), {
+  const res = await axios.get(url.toString(), {
     headers: unauthHeaders(`${BASE_URL}/`),
-    timeout: 10000,
+    timeout: 12000,
   });
 
-  // Response: LibDataDto { data: [...], page: N, maxPage: N }
-  const libData = response.data;
-  if (!libData?.data) throw new Error('Format response tidak valid');
-
-  const results = libData.data.map(manga => ({
-    id: manga.title_slug,
-    title: manga.title,
-    cover: `${COVER_URL}/${manga.gambar.replace(/^\//, '')}`,
-    url: `${BASE_URL}/${manga.title_slug}`,
-  }));
+  const lib = res.data;
+  if (!lib?.data) throw new Error('Response search tidak valid: ' + JSON.stringify(lib).slice(0, 200));
 
   const result = {
-    data: results,
-    page: libData.page,
-    maxPage: libData.maxPage,
-    hasMore: libData.page < libData.maxPage,
+    data: lib.data.map(m => ({
+      id:    m.title_slug,
+      title: m.title,
+      cover: `${COVER_URL}/${m.gambar?.replace(/^\//, '') || ''}`,
+      url:   `${BASE_URL}/${m.title_slug}`,
+      type:  m.type,
+      status: m.status,
+    })),
+    page:    lib.page ?? 1,
+    maxPage: lib.maxPage ?? 1,
+    hasMore: (lib.page ?? 1) < (lib.maxPage ?? 1),
   };
 
-  cacheSet(cacheKey, result, 1800);
+  cacheSet(cKey, result, 1800);
+  return result;
+}
+
+async function getLibrary(page = 1, params = {}) {
+  const { sortBy = 'popular', status, type, genre, min } = params;
+  const cKey = `lib:${page}:${JSON.stringify(params)}`;
+  const hit  = cacheGet(cKey);
+  if (hit) return hit;
+
+  // RSC request ke /komik/library — sama seperti popularMangaRequest
+  const url = new URL(`${BASE_URL}/komik/library`);
+  url.searchParams.set('sortBy', sortBy);
+  url.searchParams.set('page', String(page));
+  if (status) url.searchParams.set('status', status);
+  if (type)   url.searchParams.set('type', type);
+  if (genre)  url.searchParams.set('genre', genre);
+  if (min && min !== '0') url.searchParams.set('min', min);
+
+  const res = await axios.get(url.toString(), {
+    headers: rscHeaders(),
+    timeout: 15000,
+  });
+
+  // RSC payload — ekstrak JSON dari stream
+  const lib = extractFromRsc(res.data, 'data');
+  if (!lib?.data) {
+    // Debug: log snippet RSC
+    const snippet = (typeof res.data === 'string' ? res.data : JSON.stringify(res.data)).slice(0, 1000);
+    console.error('[library] RSC snippet:', snippet);
+    throw new Error('Tidak bisa parse library dari RSC payload');
+  }
+
+  const result = {
+    data: lib.data.map(m => ({
+      id:    m.title_slug,
+      title: m.title,
+      cover: `${COVER_URL}/${m.gambar?.replace(/^\//, '') || ''}`,
+      url:   `${BASE_URL}/${m.title_slug}`,
+      type:  m.type,
+      status: m.status,
+    })),
+    page:    lib.page ?? 1,
+    maxPage: lib.maxPage ?? 1,
+    hasMore: (lib.page ?? 1) < (lib.maxPage ?? 1),
+  };
+
+  cacheSet(cKey, result, 600);
   return result;
 }
 
 async function getMangaDetails(slug) {
-  const cacheKey = `manga:${slug}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) return cached;
+  const cKey = `manga:${slug}`;
+  const hit  = cacheGet(cKey);
+  if (hit) return hit;
 
-  // Persis seperti mangaDetailsRequest() — menggunakan auth headers
-  const headers = await authHeaders(`${BASE_URL}/`);
-  const response = await axios.get(`${API_URL}/komik/${slug}`, {
-    headers,
-    timeout: 10000,
-  });
+  const hdrs = await authHeaders(`${BASE_URL}/${slug}`);
+  let res;
+  try {
+    res = await axios.get(`${API_URL}/komik/${slug}`, { headers: hdrs, timeout: 12000 });
+  } catch (e) {
+    if (e.response?.status === 401) {
+      _session = null; // Invalidate dan retry
+      const hdrs2 = await authHeaders(`${BASE_URL}/${slug}`);
+      res = await axios.get(`${API_URL}/komik/${slug}`, { headers: hdrs2, timeout: 12000 });
+    } else throw e;
+  }
 
-  const manga = response.data;
-
+  const m = res.data;
   const result = {
-    id: slug,
-    title: manga.title,
-    author: manga.author,
-    description: manga.sinopsis,
-    genres: manga.Genre || [],
-    status: manga.status,
-    cover: `${COVER_URL}/${(manga.gambar || '').replace(/^\//, '')}`,
-    url: `${BASE_URL}/${slug}`,
+    id:          slug,
+    title:       m.title,
+    author:      m.author,
+    description: m.sinopsis,
+    genres:      m.Genre || [],
+    status:      m.status,
+    type:        m.type,
+    cover:       `${COVER_URL}/${(m.gambar || '').replace(/^\//, '')}`,
+    url:         `${BASE_URL}/${slug}`,
+    rating:      m.rating,
+    totalChapters: m.totalChapter,
   };
 
-  cacheSet(cacheKey, result, 3600);
+  cacheSet(cKey, result, 3600);
   return result;
 }
 
 async function getChapters(slug) {
-  const cacheKey = `chapters:${slug}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) return cached;
+  const cKey = `chapters:${slug}`;
+  const hit  = cacheGet(cKey);
+  if (hit) return hit;
 
-  // Persis seperti chapterListRequest() di Kotlin:
-  // GET $apiUrl/komik/$slug/chapter?limit=9999999
-  // Pakai unauthHeaders, bukan auth!
-  const response = await axios.get(
+  // unauthHeaders — persis seperti di Mihon (chapter endpoint tidak butuh auth)
+  const res = await axios.get(
     `${API_URL}/komik/${slug}/chapter?limit=9999999`,
-    {
-      headers: unauthHeaders(`${BASE_URL}/${slug}`),
-      timeout: 15000,
-    }
+    { headers: unauthHeaders(`${BASE_URL}/${slug}`), timeout: 15000 },
   );
 
-  // ChapterListDto { chapter: [{ chapter: "1" }, ...] }
-  const dto = response.data;
-  if (!dto?.chapter) throw new Error('Format chapter list tidak valid');
+  const dto = res.data;
+  if (!dto?.chapter) {
+    throw new Error('Chapter list invalid: ' + JSON.stringify(dto).slice(0, 200));
+  }
 
   const chapters = dto.chapter.map(ch => {
-    const raw = ch.chapter.trim();
+    const raw = String(ch.chapter).trim();
     const num = parseFloat(raw.replace(',', '.')) || -1;
     return {
-      id: raw,
-      title: `Chapter ${formatChapterNumber(raw)}`,
+      id:     raw,
+      title:  `Chapter ${fmtChapter(raw)}`,
       number: num,
-      url: `/${slug}/chapter/${raw}`,
+      url:    `/${slug}/chapter/${raw}`,
     };
-  }).sort((a, b) => b.number - a.number); // descending seperti di Kotlin
+  }).sort((a, b) => b.number - a.number);
 
-  cacheSet(cacheKey, chapters, 1800);
+  cacheSet(cKey, chapters, 1800);
   return chapters;
 }
 
-async function getChapterImages(mangaSlug, chapterNumber) {
-  const cacheKey = `chapter:${mangaSlug}:${chapterNumber}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) return cached;
+async function getChapterImages(mangaSlug, chapterNum) {
+  const cKey = `chapter:${mangaSlug}:${chapterNum}`;
+  const hit  = cacheGet(cKey);
+  if (hit) return hit;
 
-  // pageListRequest() — pakai RSC headers untuk Next.js
-  const response = await axios.get(
-    `${BASE_URL}/${mangaSlug}/chapter/${chapterNumber}`,
-    {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': `${BASE_URL}/`,
-        'rsc': '1', // Next.js RSC header — ini kuncinya!
-        'Accept': 'text/x-component, */*',
-      },
-      timeout: 15000,
-    }
-  );
+  const pageUrl = `${BASE_URL}/${mangaSlug}/chapter/${chapterNum}`;
+  const res = await axios.get(pageUrl, {
+    headers: rscHeaders(),
+    timeout: 20000,
+  });
 
-  // extractNextJs<ChapterPageDataDto> — parse imageSrc dari RSC payload
-  // imageSrc adalah array path gambar relatif
-  const imageSrc = extractImageSrcFromRsc(response.data);
+  const rscRaw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+
+  // Cari imageSrc array di RSC payload
+  const imageSrc = extractImageSrc(rscRaw);
 
   if (!imageSrc || imageSrc.length === 0) {
-    throw new Error('Tidak ada gambar ditemukan di chapter ini');
+    // Debug: log snippet
+    console.error('[chapter] RSC snippet (2000 chars):', rscRaw.slice(0, 2000));
+    throw new Error(`Tidak ada gambar di chapter ${chapterNum}. Cek server logs untuk RSC snippet.`);
   }
 
   const images = imageSrc.map((img, i) => ({
     page: i + 1,
-    url: `${IMAGE_BASE_URL}/${img.replace(/^\//, '')}`,
+    url:  `${IMAGE_BASE_URL}/${img.replace(/^\//, '')}`,
   }));
 
-  const result = {
-    mangaSlug,
-    chapterNumber,
-    images,
-    totalPages: images.length,
-  };
-
-  cacheSet(cacheKey, result, 1800);
+  const result = { mangaSlug, chapterNum, images, totalPages: images.length };
+  cacheSet(cKey, result, 1800);
   return result;
 }
 
-// ─── RSC Parser ──────────────────────────────────────────────────
+// ── RSC Parsers ───────────────────────────────────────────────────
 
-function extractImageSrcFromRsc(rscData) {
-  // Next.js RSC payload adalah stream teks, bukan JSON murni
-  // Cari array imageSrc di dalamnya
-  try {
-    const text = typeof rscData === 'string' ? rscData : JSON.stringify(rscData);
-
-    // Cari pattern "imageSrc":["path1","path2",...]
-    const match = text.match(/"imageSrc"\s*:\s*(\[[\s\S]*?\])/);
-    if (match) {
-      return JSON.parse(match[1]);
-    }
-
-    // Fallback: cari semua path gambar yang relevan
-    const imgMatches = [...text.matchAll(/"(\/[^"]+\.(jpg|jpeg|png|webp)[^"]*)"/gi)];
-    if (imgMatches.length > 0) {
-      return imgMatches.map(m => m[1]);
-    }
-  } catch (e) {
-    console.error('RSC parse error:', e.message);
+function extractImageSrc(rscText) {
+  // Pattern 1: "imageSrc":["path","path",...]
+  const m1 = rscText.match(/"imageSrc"\s*:\s*(\[[\s\S]*?\])/);
+  if (m1) {
+    try { return JSON.parse(m1[1]); } catch (_) {}
   }
-  return [];
+
+  // Pattern 2: array of image paths setelah kata "imageSrc"
+  const m2 = rscText.match(/imageSrc[^[]*(\[[\s\S]*?\])/);
+  if (m2) {
+    try { return JSON.parse(m2[1]); } catch (_) {}
+  }
+
+  // Pattern 3: URL gambar langsung (fallback)
+  const urls = [...rscText.matchAll(/"(\/[^"]*\.(jpg|jpeg|png|webp))"/gi)].map(m => m[1]);
+  return [...new Set(urls)];
 }
 
-// ─── Helper ──────────────────────────────────────────────────────
+function extractFromRsc(rscData, hint = '') {
+  const text = typeof rscData === 'string' ? rscData : JSON.stringify(rscData);
 
-function formatChapterNumber(raw) {
-  const normalized = raw.replace(',', '.');
-  const num = parseFloat(normalized);
-  if (isNaN(num)) return raw;
-  return num === Math.floor(num) ? Math.floor(num).toString() : num.toString();
+  // RSC baris-per-baris — cari baris yang mengandung JSON object besar
+  const lines = text.split('\n');
+  for (const line of lines) {
+    // Format RSC: "N:DATA" atau hanya JSON
+    const cleaned = line.replace(/^\d+:/, '').trim();
+    if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) continue;
+    try {
+      const parsed = JSON.parse(cleaned);
+      // Jika ada hint, cari object yang punya property itu
+      if (hint && parsed[hint] !== undefined) return parsed;
+      if (!hint) return parsed;
+    } catch (_) {}
+  }
+
+  // Coba extract JSON terbesar dari seluruh payload
+  const jsonBlocks = [...text.matchAll(/\{[^{}]{100,}\}/g)];
+  for (const block of jsonBlocks.reverse()) {
+    try {
+      const p = JSON.parse(block[0]);
+      if (!hint || p[hint] !== undefined) return p;
+    } catch (_) {}
+  }
+
+  return null;
 }
 
-// ─── Rate Limiting ───────────────────────────────────────────────
-
-const rateLimitMap = new Map();
-function checkRateLimit(ip, limit = 20, windowSec = 60) {
-  const now = Date.now();
-  const key = `rate:${ip}`;
-  let reqs = (rateLimitMap.get(key) || []).filter(t => now - t < windowSec * 1000);
-  if (reqs.length >= limit) return false;
-  reqs.push(now);
-  rateLimitMap.set(key, reqs);
-  return true;
+// ── Helpers ──────────────────────────────────────────────────────
+function fmtChapter(raw) {
+  const n = parseFloat(raw.replace(',', '.'));
+  if (isNaN(n)) return raw;
+  return n === Math.floor(n) ? String(Math.floor(n)) : String(n);
 }
 
-// ─── Handler ─────────────────────────────────────────────────────
-
+// ── Main Handler ──────────────────────────────────────────────────
 export default async function handler(req, res) {
   const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || '127.0.0.1';
 
@@ -279,17 +339,18 @@ export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Too many requests. Max 20/menit.' });
-  }
+  if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Rate limit: max 30 req/menit' });
 
-  const { action, query, page, mangaId, chapterId } = req.query;
+  const { action, query, page, mangaId, chapterId, sortBy, status, type, genre, min } = req.query;
 
   try {
     let result;
     switch (action) {
       case 'search':
         result = await searchManga(query, parseInt(page) || 1);
+        break;
+      case 'library':
+        result = await getLibrary(parseInt(page) || 1, { sortBy, status, type, genre, min });
         break;
       case 'manga':
         result = await getMangaDetails(query);
@@ -300,25 +361,40 @@ export default async function handler(req, res) {
       case 'chapter':
         result = await getChapterImages(mangaId, chapterId);
         break;
+
+      // ── Debug endpoint — hapus di production ──
+      case 'debug-session':
+        const sess = await getSession();
+        result = { token: sess.token.slice(0, 8) + '...', sign: sess.sign.slice(0, 8) + '...', ex: sess.ex };
+        break;
+      case 'debug-rsc':
+        const rscRes = await axios.get(`${BASE_URL}/komik/library`, {
+          headers: rscHeaders(), timeout: 15000,
+        });
+        const snippet = (typeof rscRes.data === 'string' ? rscRes.data : JSON.stringify(rscRes.data)).slice(0, 3000);
+        result = { snippet, contentType: rscRes.headers['content-type'] };
+        break;
+
       default:
-        return res.status(400).json({ error: 'Action tidak valid' });
+        return res.status(400).json({ error: `Action '${action}' tidak valid` });
     }
     return res.status(200).json(result);
-  } catch (error) {
-    console.error(`[scrape:${action}]`, error.message);
-
-    // Retry dengan session baru jika 401
-    if (error.response?.status === 401) {
-      sessionCache = null;
-      return res.status(401).json({ error: 'Session expired, coba lagi' });
-    }
+  } catch (err) {
+    console.error(`[scrape:${action}]`, err.message);
+    if (err.response?.status === 401) _session = null;
 
     const msg =
-      error.response?.status === 403 ? 'Akses diblokir oleh situs' :
-      error.response?.status === 404 ? 'Konten tidak ditemukan' :
-      error.code === 'ENOTFOUND' ? 'Tidak bisa terhubung ke server' :
-      error.message;
+      err.response?.status === 401 ? 'Session expired — coba lagi' :
+      err.response?.status === 403 ? 'Akses diblokir Cloudflare' :
+      err.response?.status === 404 ? 'Konten tidak ditemukan' :
+      err.code === 'ENOTFOUND'     ? 'DNS tidak bisa di-resolve' :
+      err.code === 'ETIMEDOUT'     ? 'Request timeout' :
+      err.message;
 
-    return res.status(error.response?.status || 500).json({ error: msg });
+    return res.status(err.response?.status || 500).json({
+      error: msg,
+      action,
+      hint: 'Cek Vercel logs untuk detail lebih lanjut',
+    });
   }
 }
