@@ -3,477 +3,904 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Softkomik Reader</title>
+  <title>Softkomik</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #111118;
+      --surface2:  #1a1a26;
+      --border:    #ffffff0f;
+      --accent:    #e63946;
+      --accent2:   #ff6b6b;
+      --gold:      #ffd166;
+      --text:      #e8e8f0;
+      --muted:     #6b6b88;
+      --radius:    10px;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0f0f0f;
-      color: #e0e0e0;
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
     }
 
-    .container { max-width: 1200px; margin: 0 auto; }
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 99px; }
 
+    /* ── Header ── */
     .header {
-      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-      padding: 20px;
-      border-bottom: 2px solid #ff6b6b;
-      position: sticky;
-      top: 0;
-      z-index: 100;
+      position: sticky; top: 0; z-index: 200;
+      background: rgba(10,10,15,0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex; align-items: center; gap: 20px;
+      height: 64px;
     }
 
-    .header h1 { font-size: 24px; margin-bottom: 10px; }
-
-    .search-bar {
-      display: flex;
-      gap: 10px;
-    }
-
-    .search-bar input {
-      flex: 1;
-      padding: 12px;
-      background: #333;
-      border: 1px solid #444;
-      color: #e0e0e0;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-
-    .search-bar button {
-      padding: 12px 24px;
-      background: #ff6b6b;
-      color: white;
-      border: none;
-      border-radius: 4px;
+    .logo {
+      font-family: 'Bebas Neue', cursive;
+      font-size: 28px;
+      letter-spacing: 2px;
+      color: var(--accent);
+      text-decoration: none;
+      flex-shrink: 0;
       cursor: pointer;
-      font-weight: 600;
     }
+    .logo span { color: var(--text); }
 
-    .search-bar button:hover { background: #ff5252; }
-
-    .content {
-      display: grid;
-      grid-template-columns: 200px 1fr;
-      gap: 20px;
-      padding: 20px;
-      min-height: calc(100vh - 200px);
+    .search-wrap {
+      flex: 1; max-width: 480px;
+      position: relative;
     }
+    .search-wrap input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 44px 10px 16px;
+      border-radius: 99px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .search-wrap input:focus {
+      border-color: var(--accent);
+      background: var(--surface);
+    }
+    .search-wrap input::placeholder { color: var(--muted); }
+    .search-btn {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      background: var(--accent); border: none; color: white;
+      width: 32px; height: 32px; border-radius: 99px;
+      cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .search-btn:hover { background: var(--accent2); transform: translateY(-50%) scale(1.08); }
+
+    .nav-tabs {
+      display: flex; gap: 4px; margin-left: auto;
+    }
+    .nav-tab {
+      padding: 7px 16px; border-radius: 99px;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer; border: none; background: transparent;
+      color: var(--muted); transition: all 0.2s;
+      font-family: inherit;
+    }
+    .nav-tab:hover { color: var(--text); background: var(--surface2); }
+    .nav-tab.active { background: var(--accent); color: white; }
+
+    /* ── Layout ── */
+    .app { display: flex; min-height: calc(100vh - 64px); }
 
     .sidebar {
-      background: #1a1a1a;
-      padding: 20px;
-      border-radius: 8px;
-      height: fit-content;
-      position: sticky;
-      top: 100px;
-    }
-
-    .sidebar h3 {
-      margin-bottom: 15px;
-      color: #ff6b6b;
-      font-size: 16px;
-    }
-
-    .chapter-list {
-      max-height: 600px;
+      width: 260px; flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 20px 0;
+      position: sticky; top: 64px; height: calc(100vh - 64px);
       overflow-y: auto;
     }
 
-    .chapter-item {
-      padding: 10px;
-      margin-bottom: 5px;
-      background: #222;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      transition: all 0.2s;
+    .sidebar-section { padding: 0 16px 16px; }
+    .sidebar-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+      color: var(--muted); text-transform: uppercase; margin-bottom: 8px;
+      padding: 0 4px;
     }
 
-    .chapter-item:hover {
-      background: #ff6b6b;
-      color: white;
+    .filter-group { margin-bottom: 20px; }
+    .filter-group label {
+      display: block; font-size: 12px; color: var(--muted);
+      margin-bottom: 6px; padding-left: 2px;
+    }
+    .filter-select {
+      width: 100%; padding: 8px 10px;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--radius);
+      font-size: 13px; font-family: inherit; outline: none;
+      cursor: pointer; transition: border-color 0.2s;
+    }
+    .filter-select:focus { border-color: var(--accent); }
+    .filter-select option { background: #1a1a26; }
+
+    .apply-btn {
+      width: 100%; padding: 10px;
+      background: var(--accent); border: none; color: white;
+      border-radius: var(--radius); cursor: pointer;
+      font-size: 13px; font-weight: 600; font-family: inherit;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .apply-btn:hover { background: var(--accent2); }
+    .apply-btn:active { transform: scale(0.98); }
+
+    .sidebar-divider { height: 1px; background: var(--border); margin: 16px; }
+
+    /* Chapter list di sidebar (reader mode) */
+    .chapter-sidebar-list { overflow-y: auto; }
+    .chapter-sidebar-item {
+      padding: 9px 20px; font-size: 13px; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+    }
+    .chapter-sidebar-item:hover { background: var(--surface2); color: var(--text); }
+    .chapter-sidebar-item.active {
+      background: var(--surface2); color: var(--accent);
+      border-left-color: var(--accent);
     }
 
-    .chapter-item.active {
-      background: #ff6b6b;
-      color: white;
-      font-weight: 600;
+    /* ── Main ── */
+    .main { flex: 1; overflow-x: hidden; }
+
+    /* ── Views ── */
+    .view { display: none; padding: 24px; }
+    .view.active { display: block; }
+
+    /* ── Hero section ── */
+    .section-header {
+      display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px;
     }
-
-    .main-panel {
-      background: #1a1a1a;
-      border-radius: 8px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
+    .section-title {
+      font-family: 'Bebas Neue', cursive;
+      font-size: 26px; letter-spacing: 1px; color: var(--text);
     }
+    .section-meta { font-size: 13px; color: var(--muted); }
 
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid #333;
-      background: #0f0f0f;
-    }
-
-    .tab {
-      flex: 1;
-      padding: 15px;
-      text-align: center;
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      transition: all 0.2s;
-    }
-
-    .tab:hover { background: #222; }
-
-    .tab.active {
-      border-bottom-color: #ff6b6b;
-      color: #ff6b6b;
-      font-weight: 600;
-    }
-
-    .tab-content {
-      display: none;
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px;
-    }
-
-    .tab-content.active { display: block; }
-
+    /* ── Grid ── */
     .manga-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
     }
 
     .manga-card {
-      background: #222;
-      border-radius: 8px;
+      background: var(--surface);
+      border-radius: var(--radius);
       overflow: hidden;
       cursor: pointer;
-      transition: transform 0.2s;
+      border: 1px solid var(--border);
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      position: relative;
     }
-
     .manga-card:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 8px 16px rgba(255, 107, 107, 0.2);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(230,57,70,0.15);
+      border-color: rgba(230,57,70,0.3);
     }
 
-    .manga-card img {
-      width: 100%;
-      aspect-ratio: 3/4;
-      object-fit: cover;
-      background: #333;
+    .manga-card-img {
+      width: 100%; aspect-ratio: 2/3;
+      object-fit: cover; display: block;
+      background: var(--surface2);
     }
 
-    .manga-card-info {
-      padding: 12px;
-      min-height: 80px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
-
+    .manga-card-body { padding: 10px; }
     .manga-card-title {
-      font-weight: 600;
-      font-size: 13px;
-      line-height: 1.3;
-      margin-bottom: 8px;
+      font-size: 13px; font-weight: 500;
+      line-height: 1.4;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
     }
-
-    .reader-container {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
+    .manga-card-badges {
+      display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap;
     }
-
-    .manga-info {
-      background: #222;
-      padding: 15px;
-      border-radius: 8px;
+    .badge {
+      font-size: 10px; padding: 2px 7px; border-radius: 99px;
+      font-weight: 600; letter-spacing: 0.3px;
     }
+    .badge-ongoing  { background: rgba(100,200,100,0.12); color: #6dce6d; }
+    .badge-completed { background: rgba(100,140,230,0.12); color: #7ba4ff; }
+    .badge-type { background: rgba(255,209,102,0.1); color: var(--gold); }
 
-    .manga-info h2 { margin-bottom: 8px; font-size: 20px; }
-    .manga-info p { font-size: 13px; color: #aaa; margin-bottom: 5px; }
-
-    .chapter-viewer {
-      background: #111;
-      padding: 20px;
-      border-radius: 8px;
-      text-align: center;
+    /* ── Pagination ── */
+    .pagination {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; margin-top: 32px; padding-top: 24px;
+      border-top: 1px solid var(--border);
     }
-
-    .chapter-viewer img {
-      max-width: 100%;
-      height: auto;
-      margin-bottom: 10px;
-      border-radius: 4px;
+    .page-btn {
+      padding: 8px 16px; border-radius: var(--radius);
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); cursor: pointer; font-size: 13px;
+      font-family: inherit; transition: all 0.2s;
     }
+    .page-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+    .page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .page-info { font-size: 13px; color: var(--muted); padding: 0 8px; }
 
-    .chapter-nav {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      margin-top: 20px;
-      flex-wrap: wrap;
-    }
-
-    .chapter-nav button {
-      padding: 10px 20px;
-      background: #333;
-      color: #e0e0e0;
-      border: 1px solid #444;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .chapter-nav button:hover {
-      background: #ff6b6b;
-      border-color: #ff6b6b;
-      color: white;
-    }
-
-    .chapter-nav button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
+    /* ── Loading & Error ── */
     .loading {
-      text-align: center;
-      padding: 40px;
-      color: #888;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px; padding: 80px 20px;
+      color: var(--muted);
     }
-
     .spinner {
-      display: inline-block;
-      width: 30px;
-      height: 30px;
-      border: 3px solid #333;
-      border-top-color: #ff6b6b;
+      width: 36px; height: 36px;
+      border: 3px solid var(--surface2);
+      border-top-color: var(--accent);
       border-radius: 50%;
-      animation: spin 0.8s linear infinite;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-box {
+      background: rgba(230,57,70,0.08);
+      border: 1px solid rgba(230,57,70,0.25);
+      color: #ff8a8a; padding: 16px 20px; border-radius: var(--radius);
+      font-size: 13px; line-height: 1.6;
+    }
+    .error-box strong { display: block; margin-bottom: 4px; font-size: 14px; }
+
+    /* ── Manga Detail ── */
+    .detail-hero {
+      display: flex; gap: 28px; margin-bottom: 28px;
+    }
+    .detail-cover {
+      width: 180px; flex-shrink: 0;
+      border-radius: var(--radius); overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    }
+    .detail-cover img { width: 100%; display: block; }
+    .detail-meta { flex: 1; }
+    .detail-title {
+      font-family: 'Bebas Neue', cursive;
+      font-size: 34px; letter-spacing: 1px;
+      line-height: 1.1; margin-bottom: 12px;
+    }
+    .detail-info { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .detail-info-row { font-size: 13px; color: var(--muted); }
+    .detail-info-row strong { color: var(--text); margin-right: 6px; }
+    .detail-desc {
+      font-size: 14px; line-height: 1.7; color: #b0b0c8;
+      max-width: 600px;
+    }
+    .detail-genres { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+    .genre-tag {
+      font-size: 11px; padding: 3px 10px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 99px; color: var(--muted);
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
+    .fav-btn {
+      margin-top: 16px; padding: 10px 20px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--radius);
+      cursor: pointer; font-size: 13px; font-family: inherit;
+      transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .fav-btn:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+    .fav-btn.active { background: rgba(255,209,102,0.1); border-color: var(--gold); color: var(--gold); }
+
+    /* ── Reader ── */
+    .reader-view { background: #000; padding: 0; }
+    .reader-view.active { display: flex; flex-direction: column; }
+
+    .reader-topbar {
+      background: rgba(0,0,0,0.9); backdrop-filter: blur(12px);
+      padding: 12px 24px; display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .reader-title { font-size: 14px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .reader-chapter { font-size: 13px; color: var(--accent); font-weight: 600; }
+
+    .reader-btn {
+      padding: 7px 14px; border-radius: var(--radius);
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); cursor: pointer; font-size: 12px;
+      font-family: inherit; white-space: nowrap; transition: all 0.2s;
+    }
+    .reader-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+    .reader-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .reader-pages {
+      flex: 1; overflow-y: auto; display: flex;
+      flex-direction: column; align-items: center;
+      padding: 24px 12px; gap: 4px;
+    }
+    .reader-pages img {
+      max-width: 900px; width: 100%; display: block;
+      border-radius: 2px;
     }
 
-    .error {
-      background: #8b0000;
-      color: white;
-      padding: 15px;
-      border-radius: 4px;
-      margin-top: 10px;
+    /* ── Favorites empty ── */
+    .empty {
+      text-align: center; padding: 80px 20px;
+      color: var(--muted); font-size: 14px;
     }
+    .empty-icon { font-size: 48px; margin-bottom: 16px; }
+    .empty h3 { font-size: 18px; color: var(--text); margin-bottom: 8px; }
 
+    /* ── Responsive ── */
     @media (max-width: 768px) {
-      .content { grid-template-columns: 1fr; }
-      .sidebar { position: relative; top: 0; }
-      .manga-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+      .sidebar { display: none; }
+      .sidebar.reader-sidebar { display: block; width: 100%; height: auto; position: relative; top: 0; border-right: none; border-bottom: 1px solid var(--border); max-height: 200px; }
+      .detail-hero { flex-direction: column; }
+      .detail-cover { width: 130px; }
+      .manga-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+      .header { padding: 0 14px; }
+      .logo { font-size: 22px; }
+      .nav-tabs { gap: 2px; }
+      .nav-tab { padding: 6px 10px; font-size: 12px; }
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="container">
-      <h1>📚 Softkomik Reader</h1>
-      <div class="search-bar">
-        <input type="text" id="searchInput" placeholder="Cari manga...">
-        <button onclick="searchManga()">Cari</button>
+
+<div class="header">
+  <div class="logo" onclick="goHome()">SOFT<span>KOMIK</span></div>
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="Cari judul komik...">
+    <button class="search-btn" onclick="doSearch()" title="Cari">⌕</button>
+  </div>
+  <nav class="nav-tabs">
+    <button class="nav-tab active" data-tab="library" onclick="switchTab('library', this)">Library</button>
+    <button class="nav-tab" data-tab="search" onclick="switchTab('search', this)">Pencarian</button>
+    <button class="nav-tab" data-tab="favorites" onclick="switchTab('favorites', this)">Favorit ⭐</button>
+  </nav>
+</div>
+
+<div class="app">
+
+  <!-- Sidebar (library filters / chapter list) -->
+  <aside class="sidebar" id="sidebar">
+    <div id="sidebarContent">
+      <!-- Filter mode (default) -->
+      <div class="sidebar-section">
+        <div class="sidebar-label">Filter</div>
+
+        <div class="filter-group">
+          <label>Urutkan</label>
+          <select class="filter-select" id="fSort">
+            <option value="popular">Terpopuler</option>
+            <option value="newKomik">Terbaru</option>
+            <option value="update">Update Terkini</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Status</label>
+          <select class="filter-select" id="fStatus">
+            <option value="">Semua</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="tamat">Tamat</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Tipe</label>
+          <select class="filter-select" id="fType">
+            <option value="">Semua</option>
+            <option value="manga">Manga</option>
+            <option value="manhwa">Manhwa</option>
+            <option value="manhua">Manhua</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label>Minimal Chapter</label>
+          <select class="filter-select" id="fMin">
+            <option value="0">Semua</option>
+            <option value="10">10+</option>
+            <option value="50">50+</option>
+            <option value="100">100+</option>
+            <option value="200">200+</option>
+          </select>
+        </div>
+
+        <button class="apply-btn" onclick="applyFilters()">Terapkan Filter</button>
       </div>
     </div>
-  </div>
+  </aside>
 
-  <div class="container">
-    <div class="content">
-      <div class="sidebar">
-        <h3 id="sidebarTitle">Search</h3>
-        <div id="sidebarContent" class="chapter-list"></div>
+  <!-- Main content area -->
+  <main class="main">
+
+    <!-- Library view -->
+    <div id="view-library" class="view active">
+      <div class="section-header">
+        <div class="section-title" id="libTitle">Library</div>
+        <div class="section-meta" id="libMeta"></div>
       </div>
-
-      <div class="main-panel">
-        <div class="tabs">
-          <div class="tab active" onclick="switchTab('search')">🔍 Search</div>
-          <div class="tab" onclick="switchTab('reader')">📖 Reader</div>
-          <div class="tab" onclick="switchTab('favorites')">⭐ Favorites</div>
-        </div>
-
-        <div id="search" class="tab-content active">
-          <div id="searchResults" class="manga-grid"></div>
-        </div>
-
-        <div id="reader" class="tab-content">
-          <div id="readerContent"></div>
-        </div>
-
-        <div id="favorites" class="tab-content">
-          <div id="favoritesList" class="manga-grid"></div>
-        </div>
+      <div id="libGrid" class="manga-grid"></div>
+      <div class="pagination" id="libPagination" style="display:none">
+        <button class="page-btn" id="libPrev" onclick="changePage(-1)">← Sebelumnya</button>
+        <div class="page-info" id="libPageInfo"></div>
+        <button class="page-btn" id="libNext" onclick="changePage(1)">Selanjutnya →</button>
       </div>
     </div>
-  </div>
 
-  <script>
-    const API_BASE = '/api';
-    let currentManga = null;
-    let currentChapter = null;
-    let allChapters = [];
-    let favorites = JSON.parse(localStorage.getItem('favorites') || '[]');
+    <!-- Search view -->
+    <div id="view-search" class="view">
+      <div class="section-header">
+        <div class="section-title" id="searchTitle">Pencarian</div>
+        <div class="section-meta" id="searchMeta"></div>
+      </div>
+      <div id="searchGrid" class="manga-grid"></div>
+      <div class="pagination" id="searchPagination" style="display:none">
+        <button class="page-btn" id="searchPrev" onclick="changeSearchPage(-1)">← Sebelumnya</button>
+        <div class="page-info" id="searchPageInfo"></div>
+        <button class="page-btn" id="searchNext" onclick="changeSearchPage(1)">Selanjutnya →</button>
+      </div>
+    </div>
 
-    async function searchManga() {
-      const query = document.getElementById('searchInput').value.trim();
-      if (!query) return;
+    <!-- Detail view -->
+    <div id="view-detail" class="view">
+      <div id="detailContent"></div>
+    </div>
 
-      showLoading('searchResults');
-      try {
-        const res = await fetch(`${API_BASE}/scrape?action=search&query=${encodeURIComponent(query)}`);
-        const data = await res.json();
+    <!-- Reader view -->
+    <div id="view-reader" class="view reader-view">
+      <div class="reader-topbar">
+        <button class="reader-btn" onclick="backToDetail()">← Kembali</button>
+        <div class="reader-title" id="readerTitle"></div>
+        <div class="reader-chapter" id="readerChapter"></div>
+        <button class="reader-btn" id="readerPrev" onclick="prevChapter()">‹ Prev</button>
+        <button class="reader-btn" id="readerNext" onclick="nextChapter()">Next ›</button>
+      </div>
+      <div class="reader-pages" id="readerPages"></div>
+    </div>
 
-        if (!Array.isArray(data)) throw new Error(data.error || 'Invalid response');
+    <!-- Favorites view -->
+    <div id="view-favorites" class="view">
+      <div class="section-header">
+        <div class="section-title">Favorit</div>
+      </div>
+      <div id="favGrid" class="manga-grid"></div>
+    </div>
 
-        document.getElementById('searchResults').innerHTML = data.map(m => `
-          <div class="manga-card" onclick="selectManga('${m.id}', '${m.title.replace(/'/g, "\\'")}')">
-            <img src="${m.cover || 'https://via.placeholder.com/150x200?text=No+Cover'}" alt="${m.title}" onerror="this.src='https://via.placeholder.com/150x200?text=No+Cover'">
-            <div class="manga-card-info">
-              <div class="manga-card-title">${m.title}</div>
-            </div>
-          </div>
-        `).join('');
-      } catch (error) {
-        document.getElementById('searchResults').innerHTML = `<div class="error">${error.message}</div>`;
-      }
-    }
+  </main>
+</div>
 
-    async function selectManga(id, title) {
-      currentManga = { id, title };
-      showLoading('sidebarContent');
-      document.getElementById('sidebarTitle').textContent = title;
+<script>
+const API = '/api/scrape';
 
-      try {
-        const res = await fetch(`${API_BASE}/scrape?action=chapters&query=${id}`);
-        const chapters = await res.json();
+// ── State ──────────────────────────────────────────────────────────
+let state = {
+  libPage: 1, libFilters: {},
+  searchQuery: '', searchPage: 1,
+  currentManga: null, allChapters: [],
+  currentChapterIndex: 0,
+  favorites: JSON.parse(localStorage.getItem('sk_favs') || '[]'),
+  activeTab: 'library',
+};
 
-        if (!Array.isArray(chapters)) throw new Error(chapters.error);
+// ── Boot ───────────────────────────────────────────────────────────
+loadLibrary();
 
-        allChapters = chapters;
-        document.getElementById('sidebarContent').innerHTML = chapters.map((ch, i) => `
-          <div class="chapter-item" onclick="readChapter('${id}', '${ch.id}', ${i})" title="${ch.title}">
-            ${ch.title}
-          </div>
-        `).join('');
+// ── Fetch helper ──────────────────────────────────────────────────
+async function apiFetch(params) {
+  const url = new URL(API, location.origin);
+  Object.entries(params).forEach(([k, v]) => v !== undefined && v !== '' && url.searchParams.set(k, v));
 
-        if (chapters.length > 0) readChapter(id, chapters[0].id, 0);
-      } catch (error) {
-        document.getElementById('sidebarContent').innerHTML = `<div class="error">${error.message}</div>`;
-      }
-    }
+  const res = await fetch(url.toString());
+  const contentType = res.headers.get('content-type') || '';
 
-    async function readChapter(mangaId, chapterId, index) {
-      currentChapter = { mangaId, chapterId, index };
-      switchTab('reader');
-      
-      showLoading('readerContent');
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(`Server returned non-JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
 
-      try {
-        const res = await fetch(`${API_BASE}/scrape?action=chapter&mangaId=${mangaId}&chapterId=${chapterId}`);
-        const data = await res.json();
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
 
-        if (data.error) throw new Error(data.error);
+// ── Tab Navigation ────────────────────────────────────────────────
+function switchTab(tab, el) {
+  state.activeTab = tab;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
 
-        const prevBtn = index > 0 ? `<button onclick="prevChapter()">← Chapter Sebelumnya</button>` : '<button disabled>← Chapter Sebelumnya</button>';
-        const nextBtn = index < allChapters.length - 1 ? `<button onclick="nextChapter()">Chapter Berikutnya →</button>` : '<button disabled>Chapter Berikutnya →</button>';
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(`view-${tab}`)?.classList.add('active');
 
-        const html = `
-          <div class="reader-container">
-            <div class="manga-info">
-              <h2>${currentManga.title}</h2>
-              <p>${data.mangaId} - Chapter ${index + 1}/${allChapters.length}</p>
-              <p>Total: ${data.totalPages} halaman</p>
-            </div>
-            <div class="chapter-viewer">
-              ${data.images.map((img, i) => `
-                <div>
-                  <img src="${img.url}" alt="Page ${img.page}" loading="lazy">
-                  <small>Halaman ${img.page}/${data.totalPages}</small>
-                </div>
-              `).join('')}
-            </div>
-            <div class="chapter-nav">
-              ${prevBtn}
-              <button onclick="toggleFavorite()">⭐ Add Favorite</button>
-              ${nextBtn}
-            </div>
-          </div>
-        `;
+  // Sidebar
+  if (tab === 'library') showFilterSidebar();
+  else if (tab !== 'reader') hideSidebarContent();
 
-        document.getElementById('readerContent').innerHTML = html;
-      } catch (error) {
-        document.getElementById('readerContent').innerHTML = `<div class="error">${error.message}</div>`;
-      }
-    }
+  if (tab === 'favorites') renderFavorites();
+}
 
-    function nextChapter() {
-      if (currentChapter.index < allChapters.length - 1) {
-        const nextIndex = currentChapter.index + 1;
-        const nextChap = allChapters[nextIndex];
-        readChapter(currentManga.id, nextChap.id, nextIndex);
-      }
-    }
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(`view-${name}`)?.classList.add('active');
+}
 
-    function prevChapter() {
-      if (currentChapter.index > 0) {
-        const prevIndex = currentChapter.index - 1;
-        const prevChap = allChapters[prevIndex];
-        readChapter(currentManga.id, prevChap.id, prevIndex);
-      }
-    }
+function goHome() {
+  switchTab('library', document.querySelector('[data-tab="library"]'));
+}
 
-    function toggleFavorite() {
-      if (!currentManga) return;
-      const exists = favorites.find(f => f.id === currentManga.id);
-      if (exists) {
-        favorites = favorites.filter(f => f.id !== currentManga.id);
-        alert('Removed from favorites');
-      } else {
-        favorites.push(currentManga);
-        alert('Added to favorites');
-      }
-      localStorage.setItem('favorites', JSON.stringify(favorites));
-    }
+// ── Sidebar helpers ──────────────────────────────────────────────
+function showFilterSidebar() {
+  document.getElementById('sidebarContent').innerHTML = `
+    <div class="sidebar-section">
+      <div class="sidebar-label">Filter</div>
+      <div class="filter-group">
+        <label>Urutkan</label>
+        <select class="filter-select" id="fSort">
+          <option value="popular">Terpopuler</option>
+          <option value="newKomik">Terbaru</option>
+          <option value="update">Update Terkini</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select class="filter-select" id="fStatus">
+          <option value="">Semua</option>
+          <option value="ongoing">Ongoing</option>
+          <option value="tamat">Tamat</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Tipe</label>
+        <select class="filter-select" id="fType">
+          <option value="">Semua</option>
+          <option value="manga">Manga</option>
+          <option value="manhwa">Manhwa</option>
+          <option value="manhua">Manhua</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Minimal Chapter</label>
+        <select class="filter-select" id="fMin">
+          <option value="0">Semua</option>
+          <option value="10">10+</option>
+          <option value="50">50+</option>
+          <option value="100">100+</option>
+          <option value="200">200+</option>
+        </select>
+      </div>
+      <button class="apply-btn" onclick="applyFilters()">Terapkan Filter</button>
+    </div>`;
 
-    function switchTab(tabName) {
-      document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-      
-      event.target.classList.add('active');
-      document.getElementById(tabName).classList.add('active');
+  // Restore filter values
+  const { sortBy='popular', status='', type='', min='0' } = state.libFilters;
+  const s = v => v; // identity
+  document.getElementById('fSort').value = sortBy;
+  document.getElementById('fStatus').value = status;
+  document.getElementById('fType').value = type;
+  document.getElementById('fMin').value = min;
+}
 
-      if (tabName === 'favorites') {
-        loadFavorites();
-      }
-    }
+function showChapterSidebar(chapters, activeIndex) {
+  const items = chapters.map((ch, i) => `
+    <div class="chapter-sidebar-item ${i === activeIndex ? 'active' : ''}"
+         onclick="readChapter(${i})" id="ch-item-${i}">
+      ${ch.title}
+    </div>`).join('');
 
-    function loadFavorites() {
-      const html = favorites.map(f => `
-        <div class="manga-card" onclick="selectManga('${f.id}', '${f.title.replace(/'/g, "\\'")}')">
-          <div class="manga-card-info" style="background: #ff6b6b; color: white; height: 200px; justify-content: center; align-items: center; text-align: center;">
-            <div class="manga-card-title">${f.title}</div>
-          </div>
-        </div>
-      `).join('');
-      
-      document.getElementById('favoritesList').innerHTML = html || '<p style="grid-column: 1/-1; text-align: center; color: #888;">No favorites yet</p>';
-    }
+  document.getElementById('sidebarContent').innerHTML = `
+    <div class="sidebar-label" style="padding:0 20px 8px">Chapter List</div>
+    <div class="chapter-sidebar-list">${items}</div>`;
 
-    function showLoading(elementId) {
-      document.getElementById(elementId).innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    }
+  // Scroll active into view
+  setTimeout(() => {
+    document.getElementById(`ch-item-${activeIndex}`)?.scrollIntoView({ block: 'center' });
+  }, 100);
+}
 
-    document.getElementById('searchInput').addEventListener('keypress', e => {
-      if (e.key === 'Enter') searchManga();
+function hideSidebarContent() {
+  document.getElementById('sidebarContent').innerHTML = '';
+}
+
+// ── Library ──────────────────────────────────────────────────────
+async function loadLibrary() {
+  const grid = document.getElementById('libGrid');
+  const { sortBy='popular', status='', type='', min='0' } = state.libFilters;
+
+  const titleMap = { popular:'Terpopuler', newKomik:'Komik Terbaru', update:'Baru Diupdate' };
+  document.getElementById('libTitle').textContent = titleMap[sortBy] || 'Library';
+
+  grid.innerHTML = loadingHtml();
+
+  try {
+    const data = await apiFetch({
+      action: 'library',
+      page: state.libPage,
+      sortBy, status, type,
+      min: min !== '0' ? min : undefined,
     });
-  </script>
+
+    grid.innerHTML = renderMangaCards(data.data, 'showDetail');
+    showPagination('lib', data.page, data.maxPage, data.hasMore);
+    document.getElementById('libMeta').textContent = `Halaman ${data.page} / ${data.maxPage}`;
+  } catch (e) {
+    grid.innerHTML = errorHtml(e.message);
+  }
+}
+
+function applyFilters() {
+  state.libFilters = {
+    sortBy:  document.getElementById('fSort')?.value || 'popular',
+    status:  document.getElementById('fStatus')?.value || '',
+    type:    document.getElementById('fType')?.value || '',
+    min:     document.getElementById('fMin')?.value || '0',
+  };
+  state.libPage = 1;
+  loadLibrary();
+}
+
+function changePage(dir) {
+  state.libPage += dir;
+  loadLibrary();
+  document.querySelector('.main').scrollTo(0, 0);
+}
+
+// ── Search ──────────────────────────────────────────────────────
+async function doSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) return;
+  state.searchQuery = q;
+  state.searchPage = 1;
+
+  switchTab('search', document.querySelector('[data-tab="search"]'));
+  runSearch();
+}
+
+async function runSearch() {
+  const grid = document.getElementById('searchGrid');
+  document.getElementById('searchTitle').textContent = `"${state.searchQuery}"`;
+  grid.innerHTML = loadingHtml();
+
+  try {
+    const data = await apiFetch({
+      action: 'search',
+      query: state.searchQuery,
+      page: state.searchPage,
+    });
+
+    grid.innerHTML = data.data.length
+      ? renderMangaCards(data.data, 'showDetail')
+      : '<div class="empty"><div class="empty-icon">🔍</div><h3>Tidak ditemukan</h3><p>Coba kata kunci lain</p></div>';
+
+    document.getElementById('searchMeta').textContent =
+      data.data.length ? `${data.data.length} hasil` : '';
+    showPagination('search', data.page, data.maxPage, data.hasMore);
+  } catch (e) {
+    grid.innerHTML = errorHtml(e.message);
+  }
+}
+
+function changeSearchPage(dir) {
+  state.searchPage += dir;
+  runSearch();
+}
+
+document.getElementById('searchInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// ── Detail ──────────────────────────────────────────────────────
+async function showDetail(id) {
+  showView('detail');
+  document.getElementById('detailContent').innerHTML = loadingHtml();
+
+  try {
+    const [manga, chapters] = await Promise.all([
+      apiFetch({ action: 'manga', query: id }),
+      apiFetch({ action: 'chapters', query: id }),
+    ]);
+
+    state.currentManga = manga;
+    state.allChapters = chapters;
+
+    const isFav = state.favorites.some(f => f.id === id);
+    const statusBadge = manga.status
+      ? `<span class="badge ${manga.status.toLowerCase() === 'tamat' ? 'badge-completed' : 'badge-ongoing'}">${manga.status}</span>`
+      : '';
+    const typeBadge = manga.type
+      ? `<span class="badge badge-type">${manga.type}</span>`
+      : '';
+
+    const chList = chapters.slice(0, 5).map((ch, i) => `
+      <div class="chapter-sidebar-item" style="margin-bottom:4px;border-radius:6px;border-left:none;"
+           onclick="readChapter(${i})">
+        ${ch.title}
+      </div>`).join('');
+
+    document.getElementById('detailContent').innerHTML = `
+      <div class="detail-hero">
+        <div class="detail-cover">
+          <img src="${manga.cover}" alt="${manga.title}"
+               onerror="this.src='https://placehold.co/180x270/1a1a26/6b6b88?text=No+Cover'">
+        </div>
+        <div class="detail-meta">
+          <div class="detail-title">${manga.title}</div>
+          <div class="detail-info">
+            ${manga.author ? `<div class="detail-info-row"><strong>Author</strong>${manga.author}</div>` : ''}
+            ${manga.totalChapters ? `<div class="detail-info-row"><strong>Chapter</strong>${manga.totalChapters}</div>` : `<div class="detail-info-row"><strong>Chapter</strong>${chapters.length}</div>`}
+          </div>
+          <div class="detail-badges" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+            ${statusBadge}${typeBadge}
+          </div>
+          ${manga.genres?.length ? `
+            <div class="detail-genres">
+              ${manga.genres.map(g => `<span class="genre-tag">${g}</span>`).join('')}
+            </div>` : ''}
+          ${manga.description ? `<div class="detail-desc">${manga.description}</div>` : ''}
+          <button class="fav-btn ${isFav ? 'active' : ''}" onclick="toggleFav('${id}')" id="favBtn">
+            ${isFav ? '★ Favorit' : '☆ Tambah Favorit'}
+          </button>
+        </div>
+      </div>
+
+      ${chapters.length ? `
+        <div style="margin-top:8px">
+          <div class="section-header">
+            <div class="section-title" style="font-size:20px">Chapter</div>
+            <div class="section-meta">${chapters.length} chapter</div>
+          </div>
+          <div style="max-height:320px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);">
+            ${chapters.map((ch, i) => `
+              <div class="chapter-sidebar-item" style="border-left:none;"
+                   onclick="readChapter(${i})">
+                ${ch.title}
+              </div>`).join('')}
+          </div>
+        </div>` : '<div class="error-box">Tidak ada chapter ditemukan.</div>'}
+    `;
+  } catch (e) {
+    document.getElementById('detailContent').innerHTML = errorHtml(e.message);
+  }
+}
+
+// ── Reader ──────────────────────────────────────────────────────
+async function readChapter(index) {
+  state.currentChapterIndex = index;
+  const ch = state.allChapters[index];
+  if (!ch) return;
+
+  showView('reader');
+  showChapterSidebar(state.allChapters, index);
+
+  document.getElementById('readerTitle').textContent = state.currentManga?.title || '';
+  document.getElementById('readerChapter').textContent = ch.title;
+  document.getElementById('readerPrev').disabled = index <= 0;
+  document.getElementById('readerNext').disabled = index >= state.allChapters.length - 1;
+  document.getElementById('readerPages').innerHTML = loadingHtml();
+
+  // Extract mangaId dan chapterId dari URL: /SLUG/chapter/NUM
+  const parts = ch.url.replace(/^\//, '').split('/');
+  const mangaId = parts[0];
+  const chapterId = parts[parts.length - 1];
+
+  try {
+    const data = await apiFetch({ action: 'chapter', mangaId, chapterId });
+    document.getElementById('readerPages').innerHTML = data.images.map(img => `
+      <img src="${img.url}" alt="Halaman ${img.page}" loading="lazy"
+           onerror="this.style.display='none'">
+    `).join('');
+  } catch (e) {
+    document.getElementById('readerPages').innerHTML = errorHtml(e.message);
+  }
+
+  document.getElementById('readerPages').scrollTo(0, 0);
+}
+
+function prevChapter() {
+  if (state.currentChapterIndex > 0) readChapter(state.currentChapterIndex - 1);
+}
+function nextChapter() {
+  if (state.currentChapterIndex < state.allChapters.length - 1)
+    readChapter(state.currentChapterIndex + 1);
+}
+function backToDetail() {
+  showView('detail');
+  showChapterSidebar(state.allChapters, state.currentChapterIndex);
+}
+
+// ── Favorites ───────────────────────────────────────────────────
+function toggleFav(id) {
+  const exists = state.favorites.find(f => f.id === id);
+  if (exists) {
+    state.favorites = state.favorites.filter(f => f.id !== id);
+  } else if (state.currentManga) {
+    state.favorites.push({ id, title: state.currentManga.title, cover: state.currentManga.cover });
+  }
+  localStorage.setItem('sk_favs', JSON.stringify(state.favorites));
+
+  const btn = document.getElementById('favBtn');
+  if (btn) {
+    const isFav = state.favorites.some(f => f.id === id);
+    btn.className = `fav-btn ${isFav ? 'active' : ''}`;
+    btn.textContent = isFav ? '★ Favorit' : '☆ Tambah Favorit';
+  }
+}
+
+function renderFavorites() {
+  const grid = document.getElementById('favGrid');
+  if (!state.favorites.length) {
+    grid.innerHTML = `
+      <div class="empty" style="grid-column:1/-1">
+        <div class="empty-icon">⭐</div>
+        <h3>Belum ada favorit</h3>
+        <p>Klik "Tambah Favorit" di halaman detail komik</p>
+      </div>`;
+    return;
+  }
+  grid.innerHTML = renderMangaCards(state.favorites, 'showDetail');
+}
+
+// ── Pagination helper ─────────────────────────────────────────────
+function showPagination(prefix, page, maxPage, hasMore) {
+  const el = document.getElementById(`${prefix}Pagination`);
+  if (!el) return;
+  el.style.display = maxPage > 1 ? 'flex' : 'none';
+  document.getElementById(`${prefix}PageInfo`).textContent = `${page} / ${maxPage}`;
+  document.getElementById(`${prefix}Prev`).disabled = page <= 1;
+  document.getElementById(`${prefix}Next`).disabled = !hasMore;
+}
+
+// ── Render helpers ────────────────────────────────────────────────
+function renderMangaCards(list, clickFn) {
+  if (!list?.length) return '<div class="empty" style="grid-column:1/-1"><div class="empty-icon">📚</div><h3>Tidak ada hasil</h3></div>';
+
+  return list.map(m => {
+    const status = m.status?.toLowerCase();
+    const statusBadge = status
+      ? `<span class="badge ${status === 'tamat' ? 'badge-completed' : 'badge-ongoing'}">${m.status}</span>`
+      : '';
+    const typeBadge = m.type ? `<span class="badge badge-type">${m.type}</span>` : '';
+
+    return `
+      <div class="manga-card" onclick="${clickFn}('${m.id}')">
+        <img class="manga-card-img"
+             src="${m.cover || ''}"
+             alt="${escHtml(m.title)}"
+             loading="lazy"
+             onerror="this.src='https://placehold.co/160x240/1a1a26/6b6b88?text=No+Cover'">
+        <div class="manga-card-body">
+          <div class="manga-card-title">${escHtml(m.title)}</div>
+          <div class="manga-card-badges">${statusBadge}${typeBadge}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function loadingHtml() {
+  return '<div class="loading"><div class="spinner"></div><span>Memuat...</span></div>';
+}
+
+function errorHtml(msg) {
+  return `<div class="error-box"><strong>Terjadi Kesalahan</strong>${msg}</div>`;
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
 </body>
 </html>
