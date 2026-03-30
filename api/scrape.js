@@ -2,7 +2,7 @@ import cheerio from "cheerio";
 
 export default async function handler(req, res) {
   try {
-    const url = "https://id.ngomik.cloud";
+    const url = "https://id.ngomik.cloud/manga/?order=update";
 
     const response = await fetch(url, {
       headers: {
