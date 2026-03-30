@@ -7,23 +7,41 @@ export default async function handler(req, res) {
     const response = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0",
-        "Referer": url
+        "Referer": "https://id.ngomik.cloud/"
       }
     });
 
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    let results = [];
+    const results = [];
 
     $(".listupd .bs").each((i, el) => {
-      const title = $(el).find(".tt").text().trim();
-      const link = $(el).find("a").attr("href");
-      const img =
-        $(el).find("img").attr("data-src") ||
-        $(el).find("img").attr("src");
+      const a = $(el).find(".bsx > a").first();
 
-      results.push({ title, link, img });
+      const title =
+        a.attr("title") ||
+        a.find(".tt").text().trim();
+
+      const link = a.attr("href");
+
+      const img =
+        a.find("img").attr("data-pagespeed-lazy-src") ||
+        a.find("img").attr("data-src") ||
+        a.find("img").attr("src");
+
+      const chapter = a.find(".epxs").text().trim();
+      const rating = a.find(".numscore").text().trim();
+      const type = a.find(".type").text().trim();
+
+      results.push({
+        title,
+        link,
+        img,
+        chapter,
+        rating,
+        type
+      });
     });
 
     res.status(200).json(results);
