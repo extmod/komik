@@ -1,8 +1,20 @@
 {
-  "name": "ngomik-scraper",
-  "type": "module",
+  "name": "softkomik-scraper",
   "version": "1.0.0",
+  "description": "Scraper Softkomik dengan Reader - Deploy ke Vercel",
+  "main": "api/scrape.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod"
+  },
   "dependencies": {
+    "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "vercel": "^33.0.0"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
