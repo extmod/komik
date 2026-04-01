@@ -1,20 +1,12 @@
 {
-  "name": "softkomik-scraper",
+  "name": "railway-cors-proxy",
   "version": "1.0.0",
-  "description": "Scraper Softkomik dengan Reader - Deploy ke Vercel",
-  "main": "api/scrape.js",
+  "type": "module",
+  "main": "server.js",
   "scripts": {
-    "dev": "vercel dev",
-    "deploy": "vercel deploy --prod"
+    "start": "node server.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12"
-  },
-  "devDependencies": {
-    "vercel": "^33.0.0"
-  },
-  "engines": {
-    "node": "24.x"
+    "express": "^4.21.2"
   }
 }
